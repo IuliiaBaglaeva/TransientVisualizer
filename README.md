@@ -8,3 +8,5 @@ The PyQt5 library is used by this software. The software opens microscope images
 The software can export files with time cources in .xlsx and .csv formats (it can be chosen by user) for calcium transients and sarcomere shortening separately.
 
 Software was tested on Python 3.9 and does not work on Python 3.10 and 3.11. 
+
+Software is developed by Iuliia Baglaeva and Bogdan Iaparov.
