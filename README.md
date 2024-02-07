@@ -9,4 +9,4 @@ The software can export files with time cources in .xlsx and .csv formats (it ca
 
 Software was tested on Python 3.9 and does not work on Python 3.10 and 3.11. 
 
-Software is developed by Iuliia Baglaeva and Bogdan Iaparov.
+Authors:  Iuliia Baglaeva, Bogdan Iaparov, Ivan Zahradník and Alexandra Zahradníková, Department of Cellular Cardiology, Institute of Experimental Endocrinology, Biomedical Research Center of the Slovak Academy of Sciences.
