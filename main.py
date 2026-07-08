@@ -22,6 +22,12 @@ from transientimageviewer import ImageViewer
 import numpy as np
 
 
+def resource_path(relative_path):
+    if hasattr(sys, "_MEIPASS"):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path)
+
+
 class LineType(IntFlag):
     Background = 0
     ActiveSignal = 1
@@ -85,7 +91,7 @@ class MainWindow(QMainWindow):
     def __init__(self, *args, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
         # Load the UI Page and init class fields
-        uic.loadUi('window.ui', self)
+        uic.loadUi(resource_path('window.ui'), self)
         self.path = ""
         self.file_name = ""
         self.image_name = ""
