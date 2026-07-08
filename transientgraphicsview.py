@@ -14,11 +14,12 @@ class CustomGraphicsView(QGraphicsView):
 
     def mouseMoveEvent(self, event):
         super().mouseMoveEvent(event)
-        item = self.itemAt(QPoint(event.x(),event.y()))
-        if item is not None:
+        if self.scene() is not None and hasattr(self.scene(), "qImg"):
             self.sc_pos = self.mapToScene(QPoint(event.x(),event.y()))
-            img_coord = item.mapFromScene(self.sc_pos.toPoint())
-            self.mouse_coord.emit(int(img_coord.x()),int(img_coord.y()))
+            img_coord = self.scene().qImg.mapFromScene(self.sc_pos)
+            x = min(max(img_coord.x(), 0), self.scene().img.shape[1])
+            y = min(max(img_coord.y(), 0), self.scene().img.shape[0])
+            self.mouse_coord.emit(int(x),int(y))
 
     def CenterImage(self):
         self.centerOn(self.sc_pos.toPoint())

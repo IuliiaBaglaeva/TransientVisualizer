@@ -17,17 +17,19 @@ class ImageGraphicsScene(QGraphicsScene):
         self.main_window = main_window
         self.ctrl_pressed = False
         self.img = np.copy(img)
+        self.base_img = np.copy(img)
+        self.display_img = np.copy(img)
         self.is_gray = as_grayscale
         self.qImg = ""
         self.lut = np.copy(lut)
         self.height, self.width = img.shape
         self.bytesPerLine = self.width
+        self.intensity_scale = 1.0
         if as_grayscale:
-            self.qImg = QGraphicsPixmapItem(QPixmap(QImage(self.img.data, self.width, self.height, self.bytesPerLine, QImage.Format_Grayscale8)))
+            self.qImg = QGraphicsPixmapItem()
         else:
-            qI = QImage(self.img.data, self.width, self.height, self.bytesPerLine, QImage.Format_Indexed8)
-            qI.setColorTable(lut)
-            self.qImg = QGraphicsPixmapItem(QPixmap(qI))
+            self.qImg = QGraphicsPixmapItem()
+        self._updatePixmap()
         self.qImg.setTransformationMode(Qt.SmoothTransformation)
         self.qImg.setFlag(QGraphicsItem.ItemIsMovable)
         self.addItem(self.qImg)
@@ -37,6 +39,56 @@ class ImageGraphicsScene(QGraphicsScene):
         self.v_pen = None #pen for vertical line
         self.moving_line = None #temporary line for the movement of line
         self.mouse_pressed = False
+
+    def _localPointFromScene(self, scene_pos):
+        return self.qImg.mapFromScene(scene_pos)
+
+    def _screenPointFromScene(self, scene_pos):
+        image_pos = self.qImg.scenePos()
+        x = scene_pos.x() - image_pos.x()
+        y = scene_pos.y() - image_pos.y()
+        return x, y
+
+    def _clampLocalPoint(self, point):
+        x = min(max(point.x(), 0.0), float(self.img.shape[1]))
+        y = min(max(point.y(), 0.0), float(self.img.shape[0]))
+        return x, y
+
+    def _clampXY(self, x, y):
+        x = min(max(x, 0.0), float(self.img.shape[1]))
+        y = min(max(y, 0.0), float(self.img.shape[0]))
+        return x, y
+
+    def _updatePixmap(self):
+        if self.is_gray:
+            q_image = QImage(
+                self.display_img.data,
+                self.width,
+                self.height,
+                self.bytesPerLine,
+                QImage.Format_Grayscale8,
+            )
+        else:
+            q_image = QImage(
+                self.display_img.data,
+                self.width,
+                self.height,
+                self.bytesPerLine,
+                QImage.Format_Indexed8,
+            )
+            q_image.setColorTable(self.lut)
+        self.qImg.setPixmap(QPixmap(q_image))
+
+    def setIntensityScale(self, scale):
+        self.intensity_scale = scale
+        scaled = np.clip(self.base_img.astype(np.float32) * scale, 0, 255)
+        self.display_img = scaled.astype(np.uint8)
+        self._updatePixmap()
+
+    def _syncLinePositions(self):
+        image_pos = self.qImg.scenePos()
+        for line in self.lines:
+            line.setPos(image_pos)
 
     def wheelEvent(self,event):
         if self.ctrl_pressed:
@@ -70,29 +122,24 @@ class ImageGraphicsScene(QGraphicsScene):
                 return
             color = np.random.randint(0,256,3)
             pen = QPen(QColor(*color,255),15, QtCore.Qt.SolidLine)
-            x = event.scenePos().x() - self.qImg.scenePos().x()
-            y = event.scenePos().y() - self.qImg.scenePos().y()
+            x, y = self._screenPointFromScene(event.scenePos())
+            x, y = self._clampXY(x, y)
             if self.mode:
-                if y < 0:
-                    self.lines.append(QGraphicsLineItem(0, 0, self.img.shape[1],0,self.qImg))  
-                elif y > self.img.shape[0]:
-                    self.lines.append(QGraphicsLineItem(0, self.img.shape[0], self.img.shape[1],self.img.shape[0],self.qImg))
-                else:
-                    self.lines.append(QGraphicsLineItem(0, y, self.img.shape[1], y, self.qImg))
+                self.lines.append(QGraphicsLineItem(0, y, self.img.shape[1], y))
+                self.lines[-1].setPos(self.qImg.scenePos())
+                self.addItem(self.lines[-1])
                 self.lines[-1].setPen(pen)
                 self.new_horizontal_line_created.emit(self.lines[-1])
             else:
-                if x < 0:
-                    self.lines.append(QGraphicsLineItem(0, 0, 0, self.img.shape[0],self.qImg))
-                elif x > self.img.shape[1]:
-                    self.lines.append(QGraphicsLineItem(self.img.shape[1], 0, self.img.shape[1], self.img.shape[0], self.qImg))
-                else:
-                    self.lines.append(QGraphicsLineItem(x, 0, x, self.img.shape[0], self.qImg))
+                self.lines.append(QGraphicsLineItem(x, 0, x, self.img.shape[0]))
+                self.lines[-1].setPos(self.qImg.scenePos())
+                self.addItem(self.lines[-1])
                 self.lines[-1].setPen(pen)
                 self.v_pen = pen
     
     
     def MoveLine(self,line,x,y):
+        line.setPos(self.qImg.scenePos())
         if line.line().x1() == line.line().x2():
             if x < 0:
                 line.setLine(0, 0, 0, self.img.shape[0])
@@ -110,31 +157,39 @@ class ImageGraphicsScene(QGraphicsScene):
         
     def mouseMoveEvent(self, event):
         if self.moving_line:
-            x = event.scenePos().x() - self.qImg.scenePos().x()
-            y = event.scenePos().y() - self.qImg.scenePos().y()
+            x, y = self._screenPointFromScene(event.scenePos())
+            x, y = self._clampXY(x, y)
             self.MoveLine(self.moving_line,x,y)
-            self.line_is_moved.emit(self.moving_line,x,y)
+            self.line_is_moved.emit(self.moving_line,int(round(x)),int(round(y)))
         else:
             super().mouseMoveEvent(event)
+            self._syncLinePositions()
             
     def mouseReleaseEvent(self, event):
         self.mouse_pressed = False
         self.moving_line = None
         if self.v_pen:
-            x = event.scenePos().x() - self.qImg.scenePos().x()
-            self.lines.append(QGraphicsLineItem(x, 0, x, self.img.shape[0], self.qImg))
+            x, y = self._screenPointFromScene(event.scenePos())
+            x, _ = self._clampXY(x, y)
+            self.lines.append(QGraphicsLineItem(x, 0, x, self.img.shape[0]))
+            self.lines[-1].setPos(self.qImg.scenePos())
+            self.addItem(self.lines[-1])
             self.lines[-1].setPen(self.v_pen)
             self.new_vertical_lines_created.emit(self.lines[-2],self.lines[-1])
             self.v_pen = None
         else:
             super().mouseReleaseEvent(event)
+            self._syncLinePositions()
             self.image_position_changed.emit(self.qImg.scenePos().x(),self.qImg.scenePos().y())
             
     def changeImgPosition(self,x,y):
         self.qImg.setPos(x,y)
+        self._syncLinePositions()
             
     def externalAddHLine(self,line): #adding the horizontal line based on the signal from different scene
-        self.lines.append(QGraphicsLineItem(line.line(), self.qImg))
+        self.lines.append(QGraphicsLineItem(line.line()))
+        self.lines[-1].setPos(self.qImg.scenePos())
+        self.addItem(self.lines[-1])
         self.lines[-1].setPen(line.pen())
         return self.lines[-1]
         
@@ -152,18 +207,24 @@ class ImageGraphicsScene(QGraphicsScene):
     def CreateHLine(self,y):
         color = np.random.randint(0, 256, 3)
         pen = QPen(QColor(*color, 255), 15, QtCore.Qt.SolidLine)
-        y = y - self.qImg.scenePos().y()
-        self.lines.append(QGraphicsLineItem(0, y, self.img.shape[1], y, self.qImg))
+        y = min(max(y, 0), self.img.shape[0])
+        self.lines.append(QGraphicsLineItem(0, y, self.img.shape[1], y))
+        self.lines[-1].setPos(self.qImg.scenePos())
+        self.addItem(self.lines[-1])
         self.lines[-1].setPen(pen)
         return self.lines[-1]
 
     def CreateVLines(self,x1,x2):
         color = np.random.randint(0, 256, 3)
         pen = QPen(QColor(*color, 255), 15, QtCore.Qt.SolidLine)
-        x1 = x1 - self.qImg.scenePos().x()
-        self.lines.append(QGraphicsLineItem(x1, 0, x1, self.img.shape[0], self.qImg))
+        x1 = min(max(x1, 0), self.img.shape[1])
+        self.lines.append(QGraphicsLineItem(x1, 0, x1, self.img.shape[0]))
+        self.lines[-1].setPos(self.qImg.scenePos())
+        self.addItem(self.lines[-1])
         self.lines[-1].setPen(pen)
-        x2 = x2 - self.qImg.scenePos().x()
-        self.lines.append(QGraphicsLineItem(x2, 0, x2, self.img.shape[0], self.qImg))
+        x2 = min(max(x2, 0), self.img.shape[1])
+        self.lines.append(QGraphicsLineItem(x2, 0, x2, self.img.shape[0]))
+        self.lines[-1].setPos(self.qImg.scenePos())
+        self.addItem(self.lines[-1])
         self.lines[-1].setPen(pen)
         return [self.lines[-2],self.lines[-1]]

@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import  QSizePolicy, QCheckBox, QSpinBox, QPushButton, QWidget, QSlider, QHBoxLayout, QVBoxLayout
+from PyQt5.QtWidgets import  QSizePolicy, QCheckBox, QSpinBox, QDoubleSpinBox, QPushButton, QWidget, QSlider, QHBoxLayout, QVBoxLayout
 from PyQt5.QtCore import Qt
 from PyQt5 import QtCore
 
@@ -38,10 +38,22 @@ class ImageViewer(QWidget):
         self.zoom_Y.setChecked(False)
         self.button_line = QPushButton("Space",self)
         self.button_line.clicked.connect(self.ChangeMode)
+        self.intensity_value = QDoubleSpinBox()
+        self.intensity_value.setMinimum(0.1)
+        self.intensity_value.setMaximum(5.0)
+        self.intensity_value.setSingleStep(0.1)
+        self.intensity_value.setDecimals(1)
+        self.intensity_value.setValue(1.0)
+        self.intensity_value.setPrefix("I ")
+        self.intensity_value.valueChanged.connect(self.ChangeIntensity)
+        self.button_intensity_reset = QPushButton("Reset Intensity", self)
+        self.button_intensity_reset.clicked.connect(self.ResetIntensity)
         #create layout and synchronize them
         buttons_layout = QHBoxLayout()
         buttons_layout.addWidget(self.zoom_value_X)
         buttons_layout.addWidget(self.scale_slider_X)
+        buttons_layout.addWidget(self.intensity_value)
+        buttons_layout.addWidget(self.button_intensity_reset)
         buttons_layout.addWidget(self.button_line)
         buttons_layout.addWidget(self.button_reset)
         buttons_layout.addWidget(self.zoom_Y)
@@ -163,3 +175,15 @@ class ImageViewer(QWidget):
     def ChangeMode(self):
         self.ChangeModeExt()
         self.sync_change_mode.emit()
+
+    def ChangeIntensityExt(self, value):
+        self.scene.setIntensityScale(value)
+        self.intensity_value.blockSignals(True)
+        self.intensity_value.setValue(value)
+        self.intensity_value.blockSignals(False)
+
+    def ChangeIntensity(self, value):
+        self.ChangeIntensityExt(value)
+
+    def ResetIntensity(self):
+        self.ChangeIntensity(1.0)

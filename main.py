@@ -251,6 +251,11 @@ class MainWindow(QMainWindow):
         self.F = None
         self.L = None
 
+    def GetAnalysisImage(self, channel_name):
+        if channel_name == "fluo":
+            return self.fluo_image
+        return self.trans_image
+
     def closeEvent(self,event):#
         exit_msg = "Are you sure you want to exit?"
         msg_box = QMessageBox()
@@ -291,17 +296,30 @@ class MainWindow(QMainWindow):
             self.status.setText("Current Image: " + f"{self.path}\{self.file_name}")
             self.time_points = ["Start","End"]
             self.SetImageViewer()
+            if "Viewer_settings" in project_data:
+                viewer_settings = project_data["Viewer_settings"]
+                if "Fluo" in viewer_settings and "Intensity" in viewer_settings["Fluo"]:
+                    self.img_viewer.widget(0).ChangeIntensityExt(viewer_settings["Fluo"]["Intensity"])
+                if "Trans" in viewer_settings and "Intensity" in viewer_settings["Trans"]:
+                    self.img_viewer.widget(1).ChangeIntensityExt(viewer_settings["Trans"]["Intensity"])
             # add lines
             for l in project_data["Time_lines"]:
                 lines = Line()
                 lines.Lines[0] = self.img_viewer.widget(0).scene.CreateHLine(l["t"])
                 lines.Lines[1] = self.img_viewer.widget(1).scene.externalAddHLine(lines.Lines[0])
+                if "Color" in l:
+                    color = QColor(*l["Color"])
+                    pen = lines.Lines[0].pen()
+                    pen.setColor(color)
+                    lines.Lines[0].setPen(pen)
+                    lines.Lines[1].setPen(pen)
                 lines.LineType = LineType.TimeSegment
                 lines.Widget = PlacedWidget.Both
                 self.h_lines.append(lines)
                 self.addTimesRow()
                 rowPosition = self.time_table.rowCount()
                 self.time_table.item(rowPosition - 1, 0).setText(l["Name"])
+                self.time_table.item(rowPosition - 1, 1).setBackground(lines.Lines[0].pen().color())
                 self.StartComboBox.addItem(l["Name"])
                 self.FFTComboBox.addItem(l["Name"])
                 self.EndComboBox.addItem(l["Name"])
@@ -310,10 +328,17 @@ class MainWindow(QMainWindow):
                 lines.Widget = PlacedWidget(l["Place"])
                 lines.LineType = LineType(l["Role"])
                 lines.Lines = self.img_viewer.widget(lines.Widget).scene.CreateVLines(l["x1"],l["x2"])
+                if "Color" in l:
+                    color = QColor(*l["Color"])
+                    pen = lines.Lines[0].pen()
+                    pen.setColor(color)
+                    lines.Lines[0].setPen(pen)
+                    lines.Lines[1].setPen(pen)
                 self.v_lines.append(lines)
                 self.addLineScansRow()
                 rowPosition = self.line_table.rowCount()
                 self.line_table.item(rowPosition - 1, 0).setText(l["Name"])
+                self.line_table.item(rowPosition - 1, 1).setBackground(lines.Lines[0].pen().color())
             # check for outliers. If does not exist, set up default values
             if "Outliers" in project_data:
                 self.MinimumOutlierSpinBox.setValue(project_data["Outliers"]["Min length"])
@@ -351,7 +376,7 @@ class MainWindow(QMainWindow):
         data = pd.DataFrame(data_F,columns=cols)
         data.to_excel(writer, sheet_name='Calcium', index = False)
         data_bg.to_excel(writer, sheet_name='BG Info', index = False)
-        writer.save()
+        writer.close()
         if self.outlier_plot is None:
             data_L = np.zeros((self.t_L.shape[0],2))
             data_L[:,0] = self.t_L
@@ -364,9 +389,17 @@ class MainWindow(QMainWindow):
         data = pd.DataFrame(data_L,columns=cols)
         writer = pd.ExcelWriter(f"{self.path}\{self.image_name}{idx_project or ''}_L.xlsx", engine='xlsxwriter')
         data.to_excel(writer, sheet_name='Length', index = False)
-        writer.save()
+        writer.close()
         project = {}
         project["filename"] = self.file_name
+        project["Viewer_settings"] = {
+            "Fluo": {
+                "Intensity": self.img_viewer.widget(0).intensity_value.value()
+            },
+            "Trans": {
+                "Intensity": self.img_viewer.widget(1).intensity_value.value()
+            }
+        }
         project["Space_lines"] = []
         for i,L in enumerate(self.v_lines):
             out = {}
@@ -375,12 +408,16 @@ class MainWindow(QMainWindow):
             out["Place"] = L.Widget
             out["Role"] = L.LineType
             out["Name"] = self.line_table.item(i,0).text()
+            color = L.Lines[0].pen().color()
+            out["Color"] = [color.red(), color.green(), color.blue(), color.alpha()]
             project["Space_lines"].append(out)
         project["Time_lines"] = []
         for i,L in enumerate(self.h_lines):
             out = {}
             out["t"] = L.Lines[0].line().y1()
             out["Name"] = self.time_table.item(i,0).text()
+            color = L.Lines[0].pen().color()
+            out["Color"] = [color.red(), color.green(), color.blue(), color.alpha()]
             project["Time_lines"].append(out)
         project["Outliers"] = {
             "Min length": self.MinimumOutlierSpinBox.value(),
@@ -396,19 +433,21 @@ class MainWindow(QMainWindow):
 
 
     def GetStartandEnd(self):
+        fluo_image = self.GetAnalysisImage("fluo")
         if self.StartComboBox.currentIndex() == 0:
             t_start = 0
         else:
             t_start = self.h_lines[self.StartComboBox.currentIndex() - 1].Lines[0].line().y1()
         if self.EndComboBox.currentIndex() == 0:
-            t_end = self.fluo_image.shape[0]
+            t_end = fluo_image.shape[0]
         else:
             t_end = self.h_lines[self.EndComboBox.currentIndex() - 1].Lines[0].line().y1()
         return int(t_start  + 0.5), int(t_end + 0.5)
 
     def GetSarcROI(self):
-        x_cond_calc_roi = np.zeros(self.trans_image.shape[1], dtype="uint8")
-        x_cond_calc_excl_roi = np.ones(self.trans_image.shape[1], dtype="uint8")
+        trans_image = self.GetAnalysisImage("trans")
+        x_cond_calc_roi = np.zeros(trans_image.shape[1], dtype="uint8")
+        x_cond_calc_excl_roi = np.ones(trans_image.shape[1], dtype="uint8")
         num_lines = 0
         for i, L in enumerate(self.v_lines):
             if L.LineType == LineType.ActiveSignal and L.Widget == PlacedWidget.Sarcomere:
@@ -426,7 +465,8 @@ class MainWindow(QMainWindow):
     def ComputeSarProfile(self):
         idx_start, idx_end = self.GetStartandEnd()
         x_cond_calc_roi, n_lines = self.GetSarcROI()
-        sar_roi = self.trans_image[idx_start:idx_end]
+        trans_image = self.GetAnalysisImage("trans")
+        sar_roi = trans_image[idx_start:idx_end]
         N = sar_roi.shape[1]
         l_max = self.MaxLength.value()
         l_min = self.MinLength.value()
@@ -457,19 +497,22 @@ class MainWindow(QMainWindow):
         data_plot = None
         self.LineScanPlot.clear()
         if self.FFTWidgetComboBox.currentIndex() == 0:
-            l_f = self.fluo_image[idx_line]
+            fluo_image = self.GetAnalysisImage("fluo")
+            l_f = fluo_image[idx_line]
             x_f = np.arange(0,l_f.shape[0]) * self.dx * 1e-3
             self.LineScanPlot.plot(x_f,l_f)
         else:
+            trans_image = self.GetAnalysisImage("trans")
             x_cond_calc_roi, n_lines = self.GetSarcROI()
             if np.sum(x_cond_calc_roi) < 1e-5:
-                data_plot = self.trans_image[idx_line]
-                self.LineScanPlot.plot(x_f,l_f)
+                data_plot = trans_image[idx_line]
+                x_f = np.arange(0, data_plot.shape[0]) * self.dx * 1e-3
+                self.LineScanPlot.plot(x_f, data_plot)
             else:
                 self.LineScanPlot.addLegend()
                 idx_s = 0
                 for i in range(n_lines):
-                    data_plot = self.trans_image[idx_line, x_cond_calc_roi == i + 1]
+                    data_plot = trans_image[idx_line, x_cond_calc_roi == i + 1]
                     N = len(data_plot)
                     l_max = self.MaxLength.value()
                     l_min = self.MinLength.value()
@@ -511,8 +554,9 @@ class MainWindow(QMainWindow):
         self.LineScanPlot.autoRange()
 
     def GetFluoROI(self):
-        x_cond_calc_roi = np.zeros(self.fluo_image.shape[1],dtype="uint8")
-        x_cond_calc_excl_roi = np.ones(self.fluo_image.shape[1],dtype="uint8")
+        fluo_image = self.GetAnalysisImage("fluo")
+        x_cond_calc_roi = np.zeros(fluo_image.shape[1],dtype="uint8")
+        x_cond_calc_excl_roi = np.ones(fluo_image.shape[1],dtype="uint8")
         for i, L in enumerate(self.v_lines):
             if L.LineType == LineType.ActiveSignal and L.Widget == PlacedWidget.Fluo:
                 idx1 = int(L.Lines[0].line().x1() + 0.5)
@@ -527,21 +571,22 @@ class MainWindow(QMainWindow):
 
     def ComputeFluoProfile(self):
         idx_start, idx_end = self.GetStartandEnd()
+        fluo_image = self.GetAnalysisImage("fluo")
         # get background
-        x_cond_bg = np.zeros(self.fluo_image.shape[1],dtype="uint8")
+        x_cond_bg = np.zeros(fluo_image.shape[1],dtype="uint8")
         for i, L in enumerate(self.v_lines):
             if L.LineType == LineType.Background and L.Widget == PlacedWidget.Fluo:
                 idx1 = int(L.Lines[0].line().x1() + 0.5)
                 idx2 = int(L.Lines[1].line().x1() + 0.5)
                 x_cond_bg[idx1:idx2] = 1
-        bg_roi = self.fluo_image[idx_start:idx_end,x_cond_bg == 1]
+        bg_roi = fluo_image[idx_start:idx_end,x_cond_bg == 1]
         if bg_roi.size > 0:
             self.bg_mean = np.mean(bg_roi)
             self.bg_std = np.std(bg_roi)
         else:
             self.bg_mean = 0
             self.bg_std = 0
-        img = deepcopy(self.fluo_image)
+        img = deepcopy(fluo_image)
         img = img - self.bg_mean
         #get ROI
         x_cond_calc_roi = self.GetFluoROI()
@@ -559,13 +604,14 @@ class MainWindow(QMainWindow):
         self.ArtifactsPlot.clear()
         self.ArtifactsPlot.addLegend()
         idx_start, idx_end = self.GetStartandEnd()
+        fluo_image = self.GetAnalysisImage("fluo")
         self.t_F = np.arange(idx_start*self.dt,idx_end*self.dt,self.dt)
         for i, L in enumerate(self.v_lines):
             if L.LineType == LineType.ActiveSignal and L.Widget == PlacedWidget.Fluo:
                 idx1 = int(L.Lines[0].line().x1() + 0.5)
                 idx2 = int(L.Lines[1].line().x1() + 0.5)
                 pen = pg.mkPen(color=L.Lines[0].pen().color())
-                self.ArtifactsPlot.plot(self.t_F,np.mean(self.fluo_image[idx_start:idx_end,idx1:idx2],axis=1),pen=pen,name=self.line_table.item(i,0).text())
+                self.ArtifactsPlot.plot(self.t_F,np.mean(fluo_image[idx_start:idx_end,idx1:idx2],axis=1),pen=pen,name=self.line_table.item(i,0).text())
         self.ArtifactsPlot.autoRange()
 
     def ChangeTimeComboBox(self,row,col):
