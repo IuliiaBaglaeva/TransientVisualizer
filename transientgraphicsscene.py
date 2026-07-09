@@ -4,6 +4,8 @@ from PyQt5.QtGui import QImage, QPixmap, QPen, QColor, QTransform
 from PyQt5.QtCore import Qt
 import numpy as np
 
+DEFAULT_LINE_WIDTH = 40
+
 class ImageGraphicsScene(QGraphicsScene):
     
     new_horizontal_line_created = QtCore.pyqtSignal(QGraphicsLineItem)
@@ -121,7 +123,7 @@ class ImageGraphicsScene(QGraphicsScene):
             if isinstance(item, QGraphicsLineItem):
                 return
             color = np.random.randint(0,256,3)
-            pen = QPen(QColor(*color,255),15, QtCore.Qt.SolidLine)
+            pen = QPen(QColor(*color,255),DEFAULT_LINE_WIDTH, QtCore.Qt.SolidLine)
             x, y = self._screenPointFromScene(event.scenePos())
             x, y = self._clampXY(x, y)
             if self.mode:
@@ -206,7 +208,7 @@ class ImageGraphicsScene(QGraphicsScene):
 
     def CreateHLine(self,y):
         color = np.random.randint(0, 256, 3)
-        pen = QPen(QColor(*color, 255), 15, QtCore.Qt.SolidLine)
+        pen = QPen(QColor(*color, 255), DEFAULT_LINE_WIDTH, QtCore.Qt.SolidLine)
         y = min(max(y, 0), self.img.shape[0])
         self.lines.append(QGraphicsLineItem(0, y, self.img.shape[1], y))
         self.lines[-1].setPos(self.qImg.scenePos())
@@ -216,7 +218,7 @@ class ImageGraphicsScene(QGraphicsScene):
 
     def CreateVLines(self,x1,x2):
         color = np.random.randint(0, 256, 3)
-        pen = QPen(QColor(*color, 255), 15, QtCore.Qt.SolidLine)
+        pen = QPen(QColor(*color, 255), DEFAULT_LINE_WIDTH, QtCore.Qt.SolidLine)
         x1 = min(max(x1, 0), self.img.shape[1])
         self.lines.append(QGraphicsLineItem(x1, 0, x1, self.img.shape[0]))
         self.lines[-1].setPos(self.qImg.scenePos())

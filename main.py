@@ -45,6 +45,17 @@ class Line():
         self.LineType = None
         self.Widget = None
 
+
+class PlotWindow(QWidget):
+    def __init__(self, title):
+        super().__init__()
+        self.setWindowTitle(title)
+        self.resize(1000, 700)
+        self.plot = pg.PlotWidget()
+        layout = QVBoxLayout()
+        layout.addWidget(self.plot)
+        self.setLayout(layout)
+
 # mode: 0 - vertical, 1 - horizontal
 
 def process_element(args):
@@ -134,7 +145,8 @@ class MainWindow(QMainWindow):
         self.ComputeFluo.clicked.connect(self.ComputeFluoProfile)
         self.ComputeLineScan.clicked.connect(self.ShowSarcoLineScan)
         self.ComputeLength.clicked.connect(self.ComputeSarProfile)
-        self.ComputeArtifacts.clicked.connect(self.ComputeFluoArtifacts)
+        self.ComputeCaArtifacts.clicked.connect(self.OpenCaArtifactsSeeker)
+        self.ComputeSarcArtifacts.clicked.connect(self.OpenSarcomereArtifactsSeeker)
         # Outliers buttons
         self.OutlierStartButton.clicked.connect(self.ComputeSarcowoOutliers)
         self.PickOutlierColorButton.clicked.connect(self.PickColorForOutlierPlot)
@@ -151,6 +163,7 @@ class MainWindow(QMainWindow):
         self.outlier_pen = None
         self.bg_mean = None
         self.bg_std = None
+        self.plot_windows = {}
         #set random color for outlier
         self.SetColorForOutlierPen(QColor(*np.random.randint(0,256,3),255))
         #set mouse methods for plots
@@ -471,25 +484,35 @@ class MainWindow(QMainWindow):
     def ComputeSarProfile(self):
         idx_start, idx_end = self.GetStartandEnd()
         x_cond_calc_roi, n_lines = self.GetSarcROI()
-        trans_image = self.GetAnalysisImage("trans")
-        sar_roi = trans_image[idx_start:idx_end]
-        N = sar_roi.shape[1]
-        l_max = self.MaxLength.value()
-        l_min = self.MinLength.value()
-        lambda_max = 1 / l_max
-        lambda_min = 1 / l_min
-        dx = self.dx
-        args_list = [(i, sar_roi[i - idx_start],x_cond_calc_roi, n_lines, dx, lambda_max, lambda_min, l_max, l_min) 
-                     for i in range(idx_start, idx_end)]
-        L = []
-        with multiprocessing.Pool(self.ParallelSpinBox.value()) as pool:
-            L = pool.map(process_element, args_list)
-        self.L = np.array(L) 
+        self.L = self.ComputeSarcomereTraceForROI(x_cond_calc_roi, n_lines, idx_start, idx_end)
         self.t_L = np.arange(idx_start*self.dt, idx_end*self.dt, self.dt)
         self.SarPlot.clear()
         self.outlier_plot = None
         self.SarPlot.plot(self.t_L, self.L)
         self.SarPlot.autoRange()
+
+    def ComputeSarcomereTraceForROI(self, roi_mask, n_lines, idx_start, idx_end):
+        trans_image = self.GetAnalysisImage("trans")
+        sar_roi = trans_image[idx_start:idx_end]
+        l_max = self.MaxLength.value()
+        l_min = self.MinLength.value()
+        lambda_max = 1 / l_max
+        lambda_min = 1 / l_min
+        dx = self.dx
+        args_list = [
+            (i, sar_roi[i - idx_start], roi_mask, n_lines, dx, lambda_max, lambda_min, l_max, l_min)
+            for i in range(idx_start, idx_end)
+        ]
+        with multiprocessing.Pool(self.ParallelSpinBox.value()) as pool:
+            values = pool.map(process_element, args_list)
+        return np.array(values)
+
+    def GetOrCreatePlotWindow(self, key, title):
+        if key not in self.plot_windows:
+            self.plot_windows[key] = PlotWindow(title)
+        window = self.plot_windows[key]
+        window.setWindowTitle(title)
+        return window
 
 
     def ShowSarcoLineScan(self):
@@ -534,6 +557,7 @@ class MainWindow(QMainWindow):
                     idx_peak = np.argmax(L_f)
                     lm1 = X_f[idx_peak - 1]
                     l0 = X_f[idx_peak]
+                    sarcomere_length = 1 / l0
                     if 0 < idx_peak < len(L_f) - 1:
                         lp1 = X_f[idx_peak + 1]
                     else:
@@ -542,7 +566,8 @@ class MainWindow(QMainWindow):
                         if L.LineType == LineType.ActiveSignal and L.Widget == PlacedWidget.Sarcomere:
                             if idx_s == i:
                                 pen = pg.mkPen(color=L.Lines[0].pen().color())
-                                self.LineScanPlot.plot(x_f,l_f,pen=pen,name=self.line_table.item(j,0).text())
+                                line_name = self.line_table.item(j,0).text()
+                                self.LineScanPlot.plot(x_f,l_f,pen=pen,name=f"{line_name} ({sarcomere_length:.3f} um)")
                                 break
                             else:
                                 idx_s += 1
@@ -606,19 +631,55 @@ class MainWindow(QMainWindow):
         self.LinePlot.plot(self.t_F, self.F)
         self.LinePlot.autoRange()
 
-    def ComputeFluoArtifacts(self):
-        self.ArtifactsPlot.clear()
-        self.ArtifactsPlot.addLegend()
+    def OpenCaArtifactsSeeker(self):
         idx_start, idx_end = self.GetStartandEnd()
         fluo_image = self.GetAnalysisImage("fluo")
-        self.t_F = np.arange(idx_start*self.dt,idx_end*self.dt,self.dt)
+        time_axis = np.arange(idx_start*self.dt,idx_end*self.dt,self.dt)
+        ca_window = self.GetOrCreatePlotWindow("ca_artifacts", "Ca Seeker")
+        ca_window.plot.clear()
+        ca_window.plot.addLegend()
+        has_ca = False
         for i, L in enumerate(self.v_lines):
-            if L.LineType == LineType.ActiveSignal and L.Widget == PlacedWidget.Fluo:
-                idx1 = int(L.Lines[0].line().x1() + 0.5)
-                idx2 = int(L.Lines[1].line().x1() + 0.5)
-                pen = pg.mkPen(color=L.Lines[0].pen().color())
-                self.ArtifactsPlot.plot(self.t_F,np.mean(fluo_image[idx_start:idx_end,idx1:idx2],axis=1),pen=pen,name=self.line_table.item(i,0).text())
-        self.ArtifactsPlot.autoRange()
+            if L.LineType != LineType.ActiveSignal or L.Widget != PlacedWidget.Fluo:
+                continue
+            idx1 = int(L.Lines[0].line().x1() + 0.5)
+            idx2 = int(L.Lines[1].line().x1() + 0.5)
+            pen = pg.mkPen(color=L.Lines[0].pen().color())
+            line_name = self.line_table.item(i,0).text()
+            values = np.mean(fluo_image[idx_start:idx_end,idx1:idx2],axis=1)
+            ca_window.plot.plot(time_axis, values, pen=pen, name=line_name)
+            has_ca = True
+        if has_ca:
+            ca_window.plot.autoRange()
+            ca_window.show()
+            ca_window.raise_()
+
+    def OpenSarcomereArtifactsSeeker(self):
+        idx_start, idx_end = self.GetStartandEnd()
+        time_axis = np.arange(idx_start*self.dt,idx_end*self.dt,self.dt)
+        sarc_window = self.GetOrCreatePlotWindow("sarcomere_artifacts", "Sarcomere Seeker")
+        sarc_window.plot.clear()
+        sarc_window.plot.addLegend()
+        has_sarc = False
+        trans_image = self.GetAnalysisImage("trans")
+        for i, L in enumerate(self.v_lines):
+            if L.LineType != LineType.ActiveSignal or L.Widget != PlacedWidget.Sarcomere:
+                continue
+            idx1 = int(L.Lines[0].line().x1() + 0.5)
+            idx2 = int(L.Lines[1].line().x1() + 0.5)
+            if idx2 <= idx1:
+                continue
+            roi_mask = np.zeros(trans_image.shape[1], dtype="uint8")
+            roi_mask[idx1:idx2] = 1
+            values = self.ComputeSarcomereTraceForROI(roi_mask, 1, idx_start, idx_end)
+            pen = pg.mkPen(color=L.Lines[0].pen().color())
+            line_name = self.line_table.item(i,0).text()
+            sarc_window.plot.plot(time_axis, values, pen=pen, name=line_name)
+            has_sarc = True
+        if has_sarc:
+            sarc_window.plot.autoRange()
+            sarc_window.show()
+            sarc_window.raise_()
 
     def ChangeTimeComboBox(self,row,col):
         if col == 0:
@@ -956,6 +1017,7 @@ class MainWindow(QMainWindow):
             self.SetImageViewer()
             
 def main():
+    multiprocessing.freeze_support()
     app = QApplication(sys.argv)
     main = MainWindow()
     main.show()

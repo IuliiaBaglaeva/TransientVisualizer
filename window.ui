@@ -358,7 +358,7 @@
                <item>
                 <layout class="QHBoxLayout" name="horizontalLayout_9">
                  <item>
-                  <widget class="QPushButton" name="ComputeArtifacts">
+                  <widget class="QPushButton" name="ComputeCaArtifacts">
                    <property name="font">
                     <font>
                      <family>Calibri</family>
@@ -366,7 +366,20 @@
                     </font>
                    </property>
                    <property name="text">
-                    <string>Compute</string>
+                    <string>Ca Seeker</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QPushButton" name="ComputeSarcArtifacts">
+                   <property name="font">
+                    <font>
+                     <family>Calibri</family>
+                     <pointsize>14</pointsize>
+                    </font>
+                   </property>
+                   <property name="text">
+                    <string>Sarcomere Seeker</string>
                    </property>
                   </widget>
                  </item>
